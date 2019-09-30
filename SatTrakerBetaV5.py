@@ -57,7 +57,7 @@ class videotrak:
         origheight, origwidth = img.shape[:2]
         roiheight, roiwidth = imageroi.shape[:2]
         #Set up the end of the maximum search time
-        searchend = time.time() + 0.2
+        searchend = time.time() + 0.4
         finalroidiff = float('inf')
         difflowered = False
         keepgoing = True
@@ -127,9 +127,10 @@ class videotrak:
             blurred = cv2.GaussianBlur(img, (5, 5), 0)
             blurred = blurred[searchy1:int(searchy1+roiheight),searchx1:int(searchx1+roiwidth)]
             thresh = cv2.threshold(blurred, float(trackSettings.minbright), 255, cv2.THRESH_BINARY)[1]
-            cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
+            cnts,heirachy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
                 cv2.CHAIN_APPROX_SIMPLE)
             #cnts = cnts[0]
+            #print('number of contours'+str(len(cnts)))
             cX = []
             cY = []
             #for c in cnts:
@@ -368,6 +369,7 @@ class buttons:
         azcorrect = 0
         deccorrect = 0
         racorrect = 0
+        self.maxAxisRate=0.5
         i = 0
         while trackSettings.trackingsat is True:
             if firstslew is True:
@@ -378,7 +380,7 @@ class buttons:
                 self.lasttotaldiff = 0.0
                 self.sat.compute(self.observer)
                 self.radalt = self.sat.alt
-                self.radaz = self.sat.az 
+                self.radaz = self.sat.az
                 if trackSettings.telescopetype == 'LX200':
                     if trackSettings.mounttype == 'AltAz':
                         sataz = math.degrees(self.sat.az) + 180
@@ -449,16 +451,17 @@ class buttons:
                         azrate = (math.degrees(self.radaz2 - self.radaz))
                         altrate = math.degrees(self.radalt2 - self.radalt)
                         self.tel.Tracking = False
+                        print('Slewing to Az:'+str(math.degrees(self.radaz2))+' Alt:'+str(math.degrees(self.radalt2)))
                         self.tel.SlewToAltAz(math.degrees(self.radaz2),math.degrees(self.radalt2))
                         print(azrate, altrate)
-                        if azrate > self.axis0rate:
-                            azrate = self.axis0rate
-                        if azrate < (-1*self.axis0rate):
-                            azrate = (-1*self.axis0rate)
-                        if altrate > self.axis1rate:
-                            altrate = self.axis1rate
-                        if altrate < (-1*self.axis1rate):
-                            altrate = (-1*self.axis1rate)
+                        if azrate > self.maxAxisRate:
+                            azrate = self.maxAxisRate
+                        if azrate < (-1*self.maxAxisRate):
+                            azrate = (-1*self.maxAxisRate)
+                        if altrate > self.maxAxisRate:
+                            altrate = self.maxAxisRate
+                        if altrate < (-1*self.maxAxisRate):
+                            altrate = (-1*self.maxAxisRate)
                         self.tel.MoveAxis(0, azrate)
                         self.tel.MoveAxis(1, altrate)
                     if trackSettings.mounttype == 'Eq':
@@ -471,10 +474,13 @@ class buttons:
                         print(math.degrees(self.radra), math.degrees(self.raddec))
                         self.textbox.insert(END, str('Target RA: '+str(self.radra) + 'Target Dec: ' + str(self.raddec)+ '\n'))
                         self.textbox.see('end')
-                        rarate = -1*(math.degrees(self.radra2 - self.radra))*math.cos(self.raddec2)
+                        rarate = math.degrees(self.radra2 - self.radra)
                         decrate = math.degrees(self.raddec2 - self.raddec)
                         self.tel.Tracking = False
                         self.tel.SlewToCoordinates((math.degrees(self.radra2)/15),math.degrees(self.raddec2))
+                        ##### Might need to change the sign on some of this
+                        ##### Detect side of pier, if pointing west then multiplier is 1 pointing east make it -1 and multiply the decrate by that.
+                        self.decmult = 1 - (2 * self.tel.SideOfPier)
                         print(rarate, decrate)
                         if rarate > self.axis0rate:
                             rarate = self.axis0rate
@@ -484,8 +490,8 @@ class buttons:
                             decrate = self.axis1rate
                         if decrate < (-1*self.axis1rate):
                             decrate = (-1*self.axis1rate)
-                        self.tel.MoveAxis(0, rarate)
-                        self.tel.MoveAxis(1, decrate)
+                        self.tel.MoveAxis(0, -rarate)
+                        self.tel.MoveAxis(1, -1*(decrate*self.decmult))
                     time.sleep(0.001)                    
                 firstslew = False
             if trackSettings.objectfollow is False:
@@ -504,33 +510,37 @@ class buttons:
                         currentaz = self.tel.Azimuth
                         currentalt = self.tel.Altitude
                         diffaz = math.degrees(self.radaz) - currentaz
+                        if diffaz > 180:
+                            diffaz = diffaz-360
+                        if diffaz < -180:
+                            diffaz = diffaz+360
                         diffalt = math.degrees(self.radalt) - currentalt
                         self.observer.date = (d + datetime.timedelta(seconds=1))
                         self.sat.compute(self.observer)
                         self.radalt2 = self.sat.alt
                         self.radaz2 = self.sat.az
-                        trueazrate = (math.degrees(self.radaz2 - self.radaz))
+                        trueazrate = math.degrees(self.radaz2 - self.radaz)
                         truealtrate = math.degrees(self.radalt2 - self.radalt)
                         azrate = trueazrate+(diffaz*0.75)
                         altrate = truealtrate+(diffalt*0.75)
                         
-                        print('diffaz, diffalt, azrate, altrate', diffaz, diffalt, azrate, altrate, end='\r')
                         self.textbox.insert(END, str('Delta Az: ' + str(diffaz) + ' Delta Alt: ' + str(diffalt) + '\n'))
                         self.textbox.see('end')
-                        if azrate > self.axis0rate:
-                            azrate = self.axis0rate
-                        if azrate < (-1*self.axis0rate):
-                            azrate = (-1*self.axis0rate)
-                        if altrate > self.axis1rate:
-                            altrate = self.axis1rate
-                        if altrate < (-1*self.axis1rate):
-                            altrate = (-1*self.axis1rate)
+                        if azrate > self.maxAxisRate:
+                            azrate = self.maxAxisRate
+                        if azrate < (-1*self.maxAxisRate):
+                            azrate = (-1*self.maxAxisRate)
+                        if altrate > self.maxAxisRate:
+                            altrate = self.maxAxisRate
+                        if altrate < (-1*self.maxAxisRate):
+                            altrate = (-1*self.maxAxisRate)
                         self.tel.MoveAxis(0, azrate)
                         self.tel.MoveAxis(1, altrate)
                         self.diffazlast = diffaz
                         self.diffaltlast = diffalt
                         altcorrect = 0
                         azcorrect = 0
+                        print("Sat-Alt:{:.2f} Az:{:.2f} Tel-Alt:{:.2f} Az:{:.2f} Diff-Alt:{:.2f} Az:{:.2f} Sat rate-Alt:{:.2f} Az{:.2f} Tel rate-Alt:{:.2f} Az:{:.2f}".format(self.sat.alt, self.sat.az, currentalt, currentaz, diffalt, diffaz, truealtrate, trueazrate, altrate, azrate), end='\r')
                     if trackSettings.mounttype == 'Eq':
                         self.raddec = self.sat.dec
                         self.radra = self.sat.ra
@@ -547,12 +557,17 @@ class buttons:
                         self.radra2 = self.sat.ra
                         #rarate = (math.degrees(self.radra2 - self.radra))
                         #decrate = math.degrees(self.raddec2 - self.raddec)
-                        
+
                         #print('Current az, current alt, azrate, altrate', currentaz, currentalt, azrate, altrate)
-                        truerarate = -1*math.degrees(self.radra2 - self.radra)
+                        truerarate = math.degrees(self.radra2 - self.radra)
                         truedecrate = math.degrees(self.raddec2 - self.raddec)
-                        rarate = truerarate-(diffra*0.3)
-                        decrate = truedecrate+(diffdec*0.3)
+                        #rarate = -(truerarate+(diffra*0.3))
+                        #decrate = -(truedecrate+(diffdec*0.3))
+                        rarate = truerarate+(diffra*0.1)
+                        decrate = truedecrate+(diffdec*0.1)
+
+                        print("Sat-RA:{:.2f} Dec:{:.2f} Tel-RA:{:.2f} Dec:{:.2f} Diff-RA:{:.2f} Dec:{:.2f} Sat rate-RA:{:.2f} Dec{:.2f} Tel rate-RA:{:.2f} Dec:{:.2f}   ".format(math.degrees(self.sat.ra), math.degrees(self.sat.dec), currentra, currentdec, diffra, diffdec, truerarate, truedecrate, rarate, decrate))
+
                         if rarate > self.axis0rate:
                             rarate = self.axis0rate
                         if rarate < (-1*self.axis0rate):
@@ -561,11 +576,11 @@ class buttons:
                             decrate = self.axis1rate
                         if decrate < (-1*self.axis1rate):
                             decrate = (-1*self.axis1rate)
-                        print('diffra, diffdec, rarate, decrate', diffra, diffdec, rarate, decrate, end='\r')
+                        #print('diffra, diffdec, rarate, decrate', diffra, diffdec, rarate, decrate, end='\r')
                         self.textbox.insert(END, str('Delta RA: ' + str(diffra) + ' Delta Dec: ' + str(diffdec) + '\n'))
                         self.textbox.see('end')
-                        self.tel.MoveAxis(0, rarate)
-                        self.tel.MoveAxis(1, decrate)
+                        self.tel.MoveAxis(0, -rarate)
+                        self.tel.MoveAxis(1, -1*(decrate*self.decmult))
                         self.diffralast = diffra
                         self.diffdeclast = diffdec
                         deccorrect = 0
@@ -938,29 +953,30 @@ class buttons:
                     self.startButton5.configure(text='Disconnect Scope')
                 else:
                     self.tel.Connected = True
-                    if self.tel.Connected:
-                        print("Connected to telescope now")
-                        self.textbox.insert(END, str('Connected to telescope now.\n'))
+                    
+                if self.tel.Connected:
+                    print("Connected to telescope now")
+                    self.textbox.insert(END, str('Connected to telescope now.\n'))
+                    self.textbox.see('end')
+                    axis = self.tel.CanMoveAxis(0)
+                    axis2 = self.tel.CanMoveAxis(1)
+                    if axis is False or axis2 is False:
+                        print('This scope cannot use the MoveAxis method, aborting.')
+                        self.textbox.insert(END, str('This scope cannot use the MoveAxis method, aborting.\n'))
                         self.textbox.see('end')
-                        axis = self.tel.CanMoveAxis(0)
-                        axis2 = self.tel.CanMoveAxis(1)
-                        if axis is False or axis2 is False:
-                            print('This scope cannot use the MoveAxis method, aborting.')
-                            self.textbox.insert(END, str('This scope cannot use the MoveAxis method, aborting.\n'))
-                            self.textbox.see('end')
-                            self.tel.Connected = False
-                        else:
-                            self.axis0rate = float(self.tel.AxisRates(0).Item(1).Maximum)
-                            self.axis1rate = float(self.tel.AxisRates(1).Item(1).Maximum)
-                            print(self.axis0rate)
-                            print(self.axis1rate)
-                            self.textbox.insert(END, str('Axis 0 max rate: '+str(self.axis0rate)+' Axis 1 max rate: '+ str(self.axis1rate)+'\n'))
-                            self.textbox.see('end')
-                            self.startButton5.configure(text='Disconnect Scope')
+                        self.tel.Connected = False
                     else:
-                        print("Unable to connect to telescope, expect exception")
-                        self.textbox.insert(END, str('Unable to connect to telescope, expect exception.\n'))
+                        self.axis0rate = float(self.tel.AxisRates(0).Item(1).Maximum)
+                        self.axis1rate = float(self.tel.AxisRates(1).Item(1).Maximum)
+                        print(self.axis0rate)
+                        print(self.axis1rate)
+                        self.textbox.insert(END, str('Axis 0 max rate: '+str(self.axis0rate)+' Axis 1 max rate: '+ str(self.axis1rate)+'\n'))
                         self.textbox.see('end')
+                        self.startButton5.configure(text='Disconnect Scope')
+                else:
+                    print("Unable to connect to telescope, expect exception")
+                    self.textbox.insert(END, str('Unable to connect to telescope, expect exception.\n'))
+                    self.textbox.see('end')
         else:
             print('Disconnecting the Scope.')
             self.textbox.insert(END, str('Disconnecting the scope.\n'))
